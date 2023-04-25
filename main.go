@@ -5,18 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
-	"sync"
-	"unsafe"
 
 	"github.com/librespot-org/librespot-golang/Spotify"
 	"github.com/librespot-org/librespot-golang/librespot"
 	"github.com/librespot-org/librespot-golang/librespot/core"
 	"github.com/librespot-org/librespot-golang/librespot/utils"
-	"github.com/xlab/portaudio-go/portaudio"
-	"github.com/xlab/vorbis-go/decoder"
 )
 
 const (
@@ -26,15 +21,9 @@ const (
 	samplesPerChannel = 2048
 	// The samples bit depth
 	bitDepth = 16
-	// The samples format
-	sampleFormat = portaudio.PaFloat32
 )
 
 func main() {
-	// First, initialize PortAudio
-	if err := portaudio.Initialize(); paError(err) {
-		log.Fatalln("PortAudio init error: ", paErrorText(err))
-	}
 
 	// Read flags from commandline
 	username := flag.String("username", "", "spotify username")
@@ -50,11 +39,6 @@ func main() {
 	if *username != "" && *password != "" {
 		// Authenticate using a regular login and password, and store it in the blob file.
 		session, err = librespot.Login(*username, *password, *devicename)
-
-		err := ioutil.WriteFile(*blob, session.ReusableAuthBlob(), 0600)
-		if err != nil {
-			fmt.Printf("Could not store authentication blob in blob.bin: %s\n", err)
-		}
 	} else if *blob != "" && *username != "" {
 		// Authenticate reusing an existing blob
 		blobBytes, err := ioutil.ReadFile(*blob)
@@ -68,7 +52,7 @@ func main() {
 		session, err = librespot.LoginSaved(*username, blobBytes, *devicename)
 	} else if os.Getenv("client_secret") != "" {
 		// Authenticate using OAuth (untested)
-		session, err = librespot.LoginOAuth(*devicename, os.Getenv("client_id"), os.Getenv("client_secret"))
+		session, err = librespot.LoginOAuth(*devicename, os.Getenv("client_id"), os.Getenv("client_secret"), os.Getenv("redirect_uri"))
 	} else {
 		// No valid options, show the helo
 		fmt.Println("need to supply a username and password or a blob file path")
@@ -228,7 +212,7 @@ func funcAlbum(session *core.Session, albumID string) {
 func funcPlaylists(session *core.Session) {
 	fmt.Println("Listing playlists")
 
-	playlist, err := session.Mercury().GetRootPlaylist(session.Username())
+	playlist, err := session.Mercury().GetRootPlaylist(session.Username)
 
 	if err != nil || playlist.Contents == nil {
 		fmt.Println("Error getting root list: ", err)
@@ -252,7 +236,7 @@ func funcPlaylists(session *core.Session) {
 }
 
 func funcSearch(session *core.Session, keyword string) {
-	resp, err := session.Mercury().Search(keyword, 12, session.Country(), session.Username())
+	resp, err := session.Mercury().Search(keyword, 12, session.Country, session.Username)
 
 	if err != nil {
 		fmt.Println("Failed to search:", err)
@@ -310,90 +294,19 @@ func funcPlay(session *core.Session, trackID string) {
 
 	// Synchronously load the track
 	audioFile, err := session.Player().LoadTrack(selectedFile, track.GetGid())
-
-	// TODO: channel to be notified of chunks downloaded (or reader?)
-
 	if err != nil {
 		fmt.Printf("Error while loading track: %s\n", err)
-	} else {
-		// We have the track audio, let's play it! Initialize the OGG decoder, and start a PortAudio stream.
-		// Note that we skip the first 167 bytes as it is a Spotify-specific header. You can decode it by
-		// using this: https://sourceforge.net/p/despotify/code/HEAD/tree/java/trunk/src/main/java/se/despotify/client/player/SpotifyOggHeader.java
-		fmt.Println("Setting up OGG decoder...")
-		dec, err := decoder.New(audioFile, samplesPerChannel)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		info := dec.Info()
-
-		go func() {
-			dec.Decode()
-			dec.Close()
-		}()
-
-		fmt.Println("Setting up PortAudio stream...")
-		fmt.Printf("PortAudio channels: %d / SampleRate: %f\n", info.Channels, info.SampleRate)
-
-		var wg sync.WaitGroup
-		var stream *portaudio.Stream
-		callback := paCallback(&wg, int(info.Channels), dec.SamplesOut())
-
-		if err := portaudio.OpenDefaultStream(&stream, 0, info.Channels, sampleFormat, info.SampleRate,
-			samplesPerChannel, callback, nil); paError(err) {
-			log.Fatalln(paErrorText(err))
-		}
-
-		fmt.Println("Starting playback...")
-		if err := portaudio.StartStream(stream); paError(err) {
-			log.Fatalln(paErrorText(err))
-		}
-
-		wg.Wait()
+		return
 	}
-}
-
-// PortAudio helpers
-func paError(err portaudio.Error) bool {
-	return portaudio.ErrorCode(err) != portaudio.PaNoError
-
-}
-
-func paErrorText(err portaudio.Error) string {
-	return "PortAudio error: " + portaudio.GetErrorText(err)
-}
-
-func paCallback(wg *sync.WaitGroup, channels int, samples <-chan [][]float32) portaudio.StreamCallback {
-	wg.Add(1)
-	return func(_ unsafe.Pointer, output unsafe.Pointer, sampleCount uint,
-		_ *portaudio.StreamCallbackTimeInfo, _ portaudio.StreamCallbackFlags, _ unsafe.Pointer) int32 {
-
-		const (
-			statusContinue = int32(portaudio.PaContinue)
-			statusComplete = int32(portaudio.PaComplete)
-		)
-
-		frame, ok := <-samples
-		if !ok {
-			wg.Done()
-			return statusComplete
-		}
-		if len(frame) > int(sampleCount) {
-			frame = frame[:sampleCount]
-		}
-
-		var idx int
-		out := (*(*[1 << 32]float32)(unsafe.Pointer(output)))[:int(sampleCount)*channels]
-		for _, sample := range frame {
-			if len(sample) > channels {
-				sample = sample[:channels]
-			}
-			for i := range sample {
-				out[idx] = sample[i]
-				idx++
-			}
-		}
-
-		return statusContinue
+	fmt.Printf("Received aidio file: %d bytes\n", audioFile.Size())
+	buffer, err := ioutil.ReadAll(audioFile)
+	if err != nil {
+		fmt.Printf("Error while streaming file: %s\n", err)
+		return
+	}
+	err = ioutil.WriteFile(fmt.Sprintf("%s - %s.ogg", track.GetArtist()[0].GetName(), track.GetName()), buffer, os.ModePerm)
+	if err != nil {
+		fmt.Printf("Error while writing file: %s\n", err)
+		return
 	}
 }

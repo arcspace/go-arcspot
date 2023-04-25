@@ -24,7 +24,7 @@ type Track struct {
 	Name       string   `json:"name"`
 	Uri        string   `json:"uri"`
 	Duration   int      `json:"duration"`
-	Popularity float32  `json:"popularity"`
+	Popularity int      `json:"popularity"`
 }
 
 type Playlist struct {

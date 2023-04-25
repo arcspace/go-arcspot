@@ -4,21 +4,22 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
+	"sync"
+
 	"github.com/librespot-org/librespot-golang/Spotify"
 	"github.com/librespot-org/librespot-golang/librespot/connection"
 	"github.com/librespot-org/librespot-golang/librespot/mercury"
-	"log"
-	"sync"
 )
 
 type Player struct {
 	stream   connection.PacketStream
 	mercury  *mercury.Client
-	seq      uint32
-	audioKey []byte
+	//seq      uint32
+	//audioKey []byte
 
 	chanLock    sync.Mutex
-	seqChanLock sync.Mutex
+	//seqChanLock sync.Mutex
 	channels    map[uint16]*Channel
 	seqChans    sync.Map
 	nextChan    uint16
@@ -40,17 +41,12 @@ func (p *Player) LoadTrack(file *Spotify.AudioFile, trackId []byte) (*AudioFile,
 }
 
 func (p *Player) LoadTrackWithIdAndFormat(fileId []byte, format Spotify.AudioFile_Format, trackId []byte) (*AudioFile, error) {
-	// fmt.Printf("[player] Loading track audio key, fileId: %s, trackId: %s\n", utils.ConvertTo62(fileId), utils.ConvertTo62(trackId))
-
 	// Allocate an AudioFile and a channel
 	audioFile := newAudioFileWithIdAndFormat(fileId, format, p)
-
 	// Start loading the audio key
 	err := audioFile.loadKey(trackId)
-
 	// Then start loading the audio itself
 	audioFile.loadChunks()
-
 	return audioFile, err
 }
 
@@ -84,44 +80,42 @@ func (p *Player) AllocateChannel() *Channel {
 	return channel
 }
 
-func (p *Player) HandleCmd(cmd byte, data []byte) {
+func (p *Player) HandleCmd(cmd byte, data []byte) error {
 	switch {
 	case cmd == connection.PacketAesKey:
 		// Audio key response
 		dataReader := bytes.NewReader(data)
 		var seqNum uint32
-		binary.Read(dataReader, binary.BigEndian, &seqNum)
-
+		err := binary.Read(dataReader, binary.BigEndian, &seqNum)
+		if err != nil {
+			return fmt.Errorf("could not read binary seqNum: %+v", err)
+		}
 		if channel, ok := p.seqChans.Load(seqNum); ok {
 			channel.(chan []byte) <- data[4:20]
 		} else {
-			fmt.Printf("[player] Unknown channel for audio key seqNum %d\n", seqNum)
+			return fmt.Errorf("unknown channel for audio key %d", seqNum)
 		}
-
 	case cmd == connection.PacketAesKeyError:
-		// Audio key error
-		fmt.Println("[player] Audio key error!")
-		fmt.Printf("%x\n", data)
-
+		return fmt.Errorf("audio key error")
 	case cmd == connection.PacketStreamChunkRes:
 		// Audio data response
 		var channel uint16
 		dataReader := bytes.NewReader(data)
-		binary.Read(dataReader, binary.BigEndian, &channel)
-
-		// fmt.Printf("[player] Data on channel %d: %d bytes\n", channel, len(data[2:]))
-
+		err := binary.Read(dataReader, binary.BigEndian, &channel)
+		if err != nil {
+			return fmt.Errorf("could not read binary channel: %+v", err)
+		}
 		if val, ok := p.channels[channel]; ok {
 			val.handlePacket(data[2:])
 		} else {
-			fmt.Printf("Unknown channel!\n")
+			return fmt.Errorf("unknown channel")
 		}
 	}
+	return nil
 }
 
 func (p *Player) releaseChannel(channel *Channel) {
 	p.chanLock.Lock()
 	delete(p.channels, channel.num)
 	p.chanLock.Unlock()
-	// fmt.Printf("[player] Released channel %d\n", channel.num)
 }
