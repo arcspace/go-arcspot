@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 	"sync/atomic"
 
@@ -179,7 +178,12 @@ func (a *AudioFile) headerOffset() int {
 }
 
 func (a *AudioFile) chunkIndexAtByte(byteIndex int) int {
-	return int(math.Floor(float64(byteIndex) / float64(kChunkSize) / 4.0))
+	return byteIndex >> 17 // int(math.Floor(float64(byteIndex) / float64(kChunkSize) / 4.0))
+}
+
+// TODO: not use floats!?
+func (a *AudioFile) totalChunks() int {
+	return int((a.size.Load() + 131071) >> 17) // int(math.Ceil(float64(a.size.Load()) / float64(kChunkSize) / 4.0))
 }
 
 func (a *AudioFile) hasChunk(index int) bool {
@@ -202,10 +206,6 @@ func (a *AudioFile) loadKey(trackId []byte) error {
 	return nil
 }
 
-// TODO: not use floats!?
-func (a *AudioFile) totalChunks() int {
-	return int(math.Ceil(float64(a.size.Load()) / float64(kChunkSize) / 4.0))
-}
 
 func (a *AudioFile) loadChunks() {
 	// By default, we will load the track in the normal order. If we need to skip to a specific piece of audio,

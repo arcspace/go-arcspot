@@ -97,7 +97,11 @@ func LoginOAuth(deviceName, clientId, clientSecret, callbackURL string) (*Sessio
 	if callbackURL == "" {
 		callbackURL = "http://localhost:8888/callback"
 	}
-	token := getOAuthToken(clientId, clientSecret, callbackURL)
+	token, err := getOAuthToken(clientId, clientSecret, callbackURL)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("OAuth token: ", token.AccessToken)
 	return LoginOAuthToken(token.AccessToken, deviceName)
 }
 

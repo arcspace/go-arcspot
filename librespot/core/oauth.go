@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -64,7 +65,7 @@ func StartLocalOAuthServer(clientId string, clientSecret string, callback string
 	router := http.NewServeMux()
 	server := &http.Server{
 		// TODO pull port from callback
-		Addr:    ":8888",
+		Addr:    ":5000",
 		Handler: router,
 	}
 
@@ -90,8 +91,8 @@ func StartLocalOAuthServer(clientId string, clientSecret string, callback string
 	return urlPath, ch
 }
 
-func getOAuthToken(clientId string, clientSecret string, callback string) OAuth {
-	ch := make(chan OAuth)
+func getOAuthToken(clientId string, clientSecret string, callback string) (*OAuth, error) {
+	ch := make(chan *OAuth)
 
 	fmt.Println("go to this url")
 	urlPath := "https://accounts.spotify.com/authorize?" +
@@ -100,21 +101,30 @@ func getOAuthToken(clientId string, clientSecret string, callback string) OAuth 
 		"&redirect_uri=" + callback +
 		"&scope=streaming"
 	fmt.Println(urlPath)
+	
 
 	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		params := r.URL.Query()
 		auth, err := GetOauthAccessToken(params.Get("code"), callback, clientId, clientSecret)
 		if err != nil {
 			fmt.Fprintf(w, "Error getting token %q", err)
-			return
+			return 
 		}
 		fmt.Fprintf(w, "Got token, loggin in")
-		ch <- *auth
+		ch <- auth
 	})
 
 	go func() {
-		log.Fatal(http.ListenAndServe(":8888", nil))
+		log.Fatal(http.ListenAndServe(":5000", nil))
 	}()
+	
+		// Wait then bail
+	select {
+	case <-time.After(time.Second * 20):
+		return nil, errors.New("timed out waiting for auth")
+	case validAuth := <-ch:
+			return validAuth, nil
+	}
 
-	return <-ch
+
 }
