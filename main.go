@@ -153,7 +153,7 @@ func funcArtist(session *core.Session, artistID string) {
 	}
 
 	fmt.Printf("Artist: %s\n", artist.GetName())
-	fmt.Printf("Popularity: %d\n", artist.GetPopularity())
+	fmt.Printf("Popularity: %.0f\n", artist.GetPopularity())
 	fmt.Printf("Genre: %s\n", artist.GetGenre())
 
 	if artist.GetTopTrack() != nil && len(artist.GetTopTrack()) > 0 {
@@ -187,7 +187,7 @@ func funcAlbum(session *core.Session, albumID string) {
 	}
 
 	fmt.Printf("Album: %s\n", album.GetName())
-	fmt.Printf("Popularity: %d\n", album.GetPopularity())
+	fmt.Printf("Popularity: %.0f\n", album.GetPopularity())
 	fmt.Printf("Genre: %s\n", album.GetGenre())
 	fmt.Printf("Date: %d-%d-%d\n", album.GetDate().GetYear(), album.GetDate().GetMonth(), album.GetDate().GetDay())
 	fmt.Printf("Label: %s\n", album.GetLabel())

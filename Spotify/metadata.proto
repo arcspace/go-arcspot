@@ -1,3 +1,7 @@
+syntax = "proto2";
+
+option go_package = "github.com/librespot-org/librespot-golang/Spotify";
+
 package Spotify;
 
 message TopTracks {
@@ -14,7 +18,7 @@ message ActivityPeriod {
 message Artist {
     optional bytes gid = 0x1;
     optional string name = 0x2;
-    optional sint32 popularity = 0x3;
+    optional float popularity = 0x3;
     repeated TopTracks top_track = 0x4;
     repeated AlbumGroup album_group = 0x5;
     repeated AlbumGroup single_group = 0x6;
@@ -54,7 +58,7 @@ message Album {
     }
     optional string label = 0x5;
     optional Date date = 0x6;
-    optional sint32 popularity = 0x7;
+    optional float popularity = 0x7;
     repeated string genre = 0x8;
     repeated Image cover = 0x9;
     repeated ExternalId external_id = 0xa;
@@ -75,7 +79,7 @@ message Track {
     optional sint32 number = 0x5;
     optional sint32 disc_number = 0x6;
     optional sint32 duration = 0x7;
-    optional sint32 popularity = 0x8;
+    optional float popularity = 0x8;
     optional bool explicit = 0x9;
     repeated ExternalId external_id = 0xa;
     repeated Restriction restriction = 0xb;
