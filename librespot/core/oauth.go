@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +52,7 @@ func GetOauthAccessToken(code string, redirectUri string, clientId string, clien
 	return &auth, nil
 }
 
+/*
 func StartLocalOAuthServer(clientId string, clientSecret string, callback string) (string, chan OAuth) {
 	ch := make(chan OAuth)
 
@@ -90,6 +90,8 @@ func StartLocalOAuthServer(clientId string, clientSecret string, callback string
 
 	return urlPath, ch
 }
+*/
+
 
 func getOAuthToken(clientId string, clientSecret string, callback string) (*OAuth, error) {
 	ch := make(chan *OAuth)
@@ -102,7 +104,12 @@ func getOAuthToken(clientId string, clientSecret string, callback string) (*OAut
 		"&scope=streaming"
 	fmt.Println(urlPath)
 	
-
+	// router := http.NewServeMux()
+	// server := &http.Server{
+	// 	// TODO pull port from callback
+	// 	Addr:    ":5000",
+	// 	Handler: router,
+	// }
 	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		params := r.URL.Query()
 		auth, err := GetOauthAccessToken(params.Get("code"), callback, clientId, clientSecret)
@@ -112,6 +119,9 @@ func getOAuthToken(clientId string, clientSecret string, callback string) (*OAut
 		}
 		fmt.Fprintf(w, "Got token, loggin in")
 		ch <- auth
+		
+		// time.Sleep(time.Second * 1)
+		// _ = server.Shutdown(context.Background())
 	})
 
 	go func() {
@@ -120,7 +130,7 @@ func getOAuthToken(clientId string, clientSecret string, callback string) (*OAut
 	
 		// Wait then bail
 	select {
-	case <-time.After(time.Second * 20):
+	case <-time.After(time.Second * 60):
 		return nil, errors.New("timed out waiting for auth")
 	case validAuth := <-ch:
 			return validAuth, nil

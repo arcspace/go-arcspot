@@ -13,8 +13,8 @@ import (
 	"github.com/librespot-org/librespot-golang/librespot/connection"
 )
 
-// Mercury is the protocol implementation for Spotify Connect playback control and metadata fetching.It works as a
-// PUB/SUB system, where you, as an audio sink, subscribes to the events of a specified user (playlist changes) but
+// Mercury is the protocol implementation for Spotify Connect playback control and metadata fetching. It works as a
+// PUB/SUB system, where you, as an audio sink, subscribe to the events of a specified user (playlist changes) but
 // also access various metadata normally fetched by external players (tracks metadata, playlists, artists, etc).
 
 type Response struct {
@@ -49,7 +49,7 @@ type Internal struct {
 type Client struct {
 	subscriptions map[string][]chan Response
 	callbacks     map[string]Callback
-	internal      *Internal
+	internal      Internal
 	cbMu          sync.Mutex
 }
 
@@ -64,7 +64,7 @@ func CreateMercury(stream connection.PacketStream) *Client {
 	client := &Client{
 		callbacks:     make(map[string]Callback),
 		subscriptions: make(map[string][]chan Response),
-		internal: &Internal{
+		internal: Internal{
 			pending: make(map[string]Pending),
 			stream:  stream,
 		},

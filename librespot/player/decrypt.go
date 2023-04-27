@@ -3,7 +3,6 @@ package player
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"math"
 	"math/big"
 )
 
@@ -48,9 +47,12 @@ func (afd *AudioFileDecrypter) DecryptAudioWithBlock(index int, block cipher.Blo
 	afd.ivDiff.SetInt64(int64(0x100))
 
 	for i := 0; i < length; i += 4096 {
-		endBytes := int(math.Min(float64(i+4096), float64(length)))
+		i_end := i + 4096 
+		if i_end > length {
+			i_end = length
+		}
 		stream := cipher.NewCTR(block, afd.ivInt.Bytes())
-		stream.XORKeyStream(plaintext[i:endBytes], ciphertext[i:endBytes])
+		stream.XORKeyStream(plaintext[i:i_end], ciphertext[i:i_end])
 		afd.ivInt.Add(afd.ivInt, afd.ivDiff)
 	}
 

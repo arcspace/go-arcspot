@@ -75,7 +75,7 @@ func rotl(w uint32, x int) uint32 {
 }
 
 func byte2word(b []byte) uint32 {
-	return (uint32(b[3])&0xFF)<<24 | (uint32(b[2])&0xFF)<<16 | (uint32(b[1])&0xFF)<<8 | (uint32(b[0]) & 0xFF)
+	return uint32(b[3])<<24 | uint32(b[2])<<16 | uint32(b[1])<<8 | uint32(b[0])
 }
 
 func word2byte(w uint32, b []byte) {

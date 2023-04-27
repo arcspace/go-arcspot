@@ -2,7 +2,6 @@ package player
 
 import (
 	"bytes"
-	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
@@ -26,9 +25,11 @@ func min(a, b int) int {
 	return b
 }
 
+// AssetDownloader?
+// TrackDownloader
 // AudioFile represents a downloadable/cached audio file fetched by Spotify, in an encoded format (OGG, etc)
 type AudioFile struct {
-	size           atomic.Uint32
+	totalSize       atomic.Uint32
 	//lock           sync.RWMutex
 	format         Spotify.AudioFile_Format
 	fileId         []byte
@@ -60,13 +61,13 @@ func newAudioFileWithIdAndFormat(fileId []byte, format Spotify.AudioFile_Format,
 		chunkLock:     sync.RWMutex{},
 		chunksLoading: false,
 	}
-	a.size.Store(kChunkSize) // Set an initial size to fetch the first chunk regardless of the actual size
+	a.totalSize.Store(kChunkSize) // Set an initial size to fetch the first chunk regardless of the actual size
 	return a
 }
 
 // Size returns the size, in bytes, of the final audio file
 func (a *AudioFile) Size() uint32 {
-	return a.size.Load() - uint32(a.headerOffset())
+	return a.totalSize.Load() - uint32(a.headerOffset())
 }
 
 // Read is an implementation of the io.Reader interface. Note that due to the nature of the streaming, we may return
@@ -78,7 +79,7 @@ func (a *AudioFile) Read(buf []byte) (int, error) {
 	totalWritten := 0
 	eof := false
 
-	size := a.size.Load()
+	size := a.totalSize.Load()
 	// Offset the data start by the header, if needed
 	if a.cursor == 0 {
 		a.cursor += a.headerOffset()
@@ -111,7 +112,7 @@ func (a *AudioFile) Read(buf []byte) (int, error) {
 			// Calculate where our data cursor will end: either at the boundary of the current chunk, or the end
 			// of the song itself
 			dataCursorEnd := min(a.cursor+writtenLen, (chunkIdx+1)*kChunkByteSize)
-			dataCursorEnd = min(dataCursorEnd, int(a.size.Load()))
+			dataCursorEnd = min(dataCursorEnd, int(a.totalSize.Load()))
 
 			writtenLen = dataCursorEnd - a.cursor
 
@@ -148,7 +149,7 @@ func (a *AudioFile) Seek(offset int64, whence int) (int64, error) {
 		a.cursor = int(offset) + a.headerOffset()
 
 	case io.SeekEnd:
-		a.cursor = int(int64(a.size.Load()) + offset)
+		a.cursor = int(int64(a.totalSize.Load()) + offset)
 
 	case io.SeekCurrent:
 		a.cursor += int(offset)
@@ -181,9 +182,8 @@ func (a *AudioFile) chunkIndexAtByte(byteIndex int) int {
 	return byteIndex >> 17 // int(math.Floor(float64(byteIndex) / float64(kChunkSize) / 4.0))
 }
 
-// TODO: not use floats!?
 func (a *AudioFile) totalChunks() int {
-	return int((a.size.Load() + 131071) >> 17) // int(math.Ceil(float64(a.size.Load()) / float64(kChunkSize) / 4.0))
+	return int((a.totalSize.Load() + 131071) >> 17) // int(math.Ceil(float64(a.size.Load()) / float64(kChunkSize) / 4.0))
 }
 
 func (a *AudioFile) hasChunk(index int) bool {
@@ -192,18 +192,6 @@ func (a *AudioFile) hasChunk(index int) bool {
 	a.chunkLock.RUnlock()
 
 	return has && ok
-}
-
-func (a *AudioFile) loadKey(trackId []byte) error {
-	key, err := a.player.loadTrackKey(trackId, a.fileId)
-	if err != nil {
-		return fmt.Errorf("unable to load key: %+v", err)
-	}
-	a.cipher, err = aes.NewCipher(key)
-	if err != nil {
-		return fmt.Errorf("unable to decrypt aes cipher: %+v", err)
-	}
-	return nil
 }
 
 
@@ -241,6 +229,7 @@ func (a *AudioFile) requestChunk(chunkIndex int) {
 	a.chunkLock.Unlock()
 }
 
+// opens a new data channel to recv the requested chunk
 func (a *AudioFile) loadChunk(chunkIndex int) error {
 	chunkData := make([]byte, kChunkByteSize)
 
@@ -248,15 +237,14 @@ func (a *AudioFile) loadChunk(chunkIndex int) error {
 	channel.onHeader = a.onChannelHeader
 	channel.onData = a.onChannelData
 
-	chunkOffsetStart := uint32(chunkIndex * kChunkSize)
-	chunkOffsetEnd := uint32((chunkIndex + 1) * kChunkSize)
+	chunkOfs := uint32(chunkIndex * kChunkSize)
 	if err := a.player.stream.SendPacket(
 		connection.PacketStreamChunk,
 		buildAudioChunkRequest(
 			channel.num,
 			a.fileId,
-			chunkOffsetStart,
-			chunkOffsetEnd,
+			chunkOfs,
+			chunkOfs + kChunkSize,
 		),
 	); err != nil {
 		return fmt.Errorf("could not send stream chunk: %+v", err)
@@ -330,8 +318,8 @@ func (a *AudioFile) onChannelHeader(channel *Channel, id byte, data *bytes.Reade
 		binary.Read(data, binary.BigEndian, &size)
 		size *= 4
 
-		if a.size.Load() != size {
-			a.size.Store(size)
+		if a.totalSize.Load() != size {
+			a.totalSize.Store(size)
 			if a.data == nil {
 				a.data = make([]byte, size)
 			}

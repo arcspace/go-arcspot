@@ -21,38 +21,17 @@ import (
 
 // Session represents an active Spotify connection
 type Session struct {
-	/// Constructor references
-	// mercuryConstructor is the constructor that should be used to build a mercury connection
-	mercuryConstructor func(conn connection.PacketStream) *mercury.Client
-	// shannonConstructor is the constructor used to build the shannon-encrypted PacketStream connection
-	shannonConstructor func(keys crypto.SharedKeys, conn connection.PlainConnection) connection.PacketStream
-
-	/// Managers and helpers
-	// stream is the encrypted connection to the Spotify server
-	stream connection.PacketStream
-	// mercury is the mercury client associated with this session
-	mercury *mercury.Client
-	// discovery is the discovery service used for Spotify Connect devices discovery
-	discovery *discovery.Discovery
-	// player is the player service used to load the audio data
-	player *player.Player
-	// tcpCon is the plain I/O network connection to the server
-	tcpCon io.ReadWriter
-	// keys are the encryption keys used to communicate with the server
-	keys crypto.PrivateKeys
-
-	/// State and variables
-	// DeviceId is the device identifier (computer name, Android serial number, ...) sent during auth to the Spotify
-	// servers for this session
-	DeviceId string
-	// DeviceName is the device name (Android device model) sent during auth to the Spotify servers for this session
-	DeviceName string
-	// Username is the currently authenticated canonical username
-	Username string
-	// ReusableAuthBlob is the reusable authentication blob for Spotify Connect devices
-	ReusableAuthBlob []byte
-	// Country is the user country returned by the Spotify servers
-	Country string
+	keys             crypto.PrivateKeys      // keys used to communicate with the server
+	tcpCon           io.ReadWriter           // plain I/O network connection to the server
+	stream           connection.PacketStream // encrypted connection to the Spotify server
+	mercury          *mercury.Client         // mercury client associated with this session
+	discovery        *discovery.Discovery    // discovery service used for Spotify Connect devices discovery
+	player           *player.Player          // manages track downloads
+	DeviceId         string                  // device ID sent during auth to the Spotify
+	DeviceName       string                  // device name sent during auth to the Spotify servers for this session
+	Username         string                  //  authenticated canonical username
+	ReusableAuthBlob []byte                  // reusable authentication blob for Spotify Connect devices
+	Country          string                  // user country returned by Spotify
 }
 
 func (s *Session) Stream() connection.PacketStream {
@@ -119,17 +98,15 @@ func (s *Session) startConnection() error {
 		return fmt.Errorf("could no write client plain response: %+v", err)
 	}
 
-	s.stream = s.shannonConstructor(sharedKeys, conn)
-	s.mercury = s.mercuryConstructor(s.stream)
+	s.stream = crypto.CreateStream(sharedKeys, conn)
+	s.mercury = mercury.CreateMercury(s.stream)
 	s.player = player.CreatePlayer(s.stream, s.mercury)
 	return nil
 }
 
 func setupSession() (*Session, error) {
 	session := &Session{
-		keys:               crypto.GenerateKeys(),
-		mercuryConstructor: mercury.CreateMercury,
-		shannonConstructor: crypto.CreateStream,
+		keys: crypto.GenerateKeys(),
 	}
 	err := session.doConnect()
 
@@ -313,7 +290,7 @@ func readBytes(b *bytes.Buffer) ([]byte, error) {
 	return data, err
 }
 
-func makeHelloMessage(publicKey []byte, nonce []byte) ([]byte, error){
+func makeHelloMessage(publicKey []byte, nonce []byte) ([]byte, error) {
 	hello := &Spotify.ClientHello{
 		BuildInfo: &Spotify.BuildInfo{
 			Product:  Spotify.Product_PRODUCT_PARTNER.Enum(),

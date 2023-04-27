@@ -106,6 +106,8 @@ func LoginOAuth(deviceName, clientId, clientSecret, callbackURL string) (*Sessio
 }
 
 func LoginOAuthToken(accessToken string, deviceName string) (*Session, error) {
+	fmt.Printf("Logging in with OAuth token: %s\n", accessToken)
+	
 	s, err := setupSession()
 	if err != nil {
 		return s, err
@@ -162,7 +164,8 @@ func (s *Session) handleLogin() (*Spotify.APWelcome, error) {
 	}
 
 	if cmd == connection.PacketAuthFailure {
-		return nil, fmt.Errorf("authentication failed")
+		errCode := Spotify.ErrorCode(data[1])
+		return nil, fmt.Errorf("authentication failed: %v", errCode)
 	} else if cmd == connection.PacketAPWelcome {
 		welcome := &Spotify.APWelcome{}
 		err := proto.Unmarshal(data, welcome)

@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/golang/protobuf/proto"
+	//"google.golang.org/protobuf/proto"
 
 	"github.com/librespot-org/librespot-golang/Spotify"
 	"github.com/librespot-org/librespot-golang/librespot/metadata"
@@ -13,7 +14,7 @@ import (
 
 func (m *Client) mercuryGet(url string) ([]byte, error) {
 	done := make(chan []byte)
-	errs := make(chan error, 0)
+	errs := make(chan error)
 	go func(){
 		err := m.Request(Request{
 			Method:  "GET",
