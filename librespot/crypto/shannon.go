@@ -19,7 +19,7 @@ type shannonStream struct {
 	reader    io.Reader
 	writer    io.Writer
 
-	mutex *sync.Mutex
+	mutex sync.Mutex
 }
 
 func setKey(ctx *shn_ctx, key []uint8) {
@@ -35,7 +35,6 @@ func CreateStream(keys SharedKeys, conn connection.PlainConnection) connection.P
 	s := &shannonStream{
 		reader: conn.Reader,
 		writer: conn.Writer,
-		mutex:  &sync.Mutex{},
 	}
 
 	setKey(&s.recvCipher, keys.recvKey)
@@ -89,7 +88,7 @@ func (s *shannonStream) WrapWriter(writer io.Writer) {
 
 func (s *shannonStream) Read(p []byte) (n int, err error) {
 	n, err = s.reader.Read(p)
-	p = s.Decrypt(p)
+	s.Decrypt(p)
 	return n, err
 }
 

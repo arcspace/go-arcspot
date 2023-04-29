@@ -37,12 +37,11 @@ func CreatePlayer(conn connection.PacketStream, client *mercury.Client) *Player 
 	}
 }
 
-func (p *Player) LoadTrack(file *Spotify.AudioFile, trackId []byte) (*AudioFile, error) {
+func (p *Player) LoadTrack(file *Spotify.AudioFile, trackId []byte) (*spotifyAsset, error) {
 	return p.LoadTrackWithIdAndFormat(file.FileId, file.GetFormat(), trackId)
 }
 
-func (p *Player) LoadTrackWithIdAndFormat(fileId []byte, format Spotify.AudioFile_Format, trackId []byte) (*AudioFile, error) {
-	// Allocate an AudioFile and a channel
+func (p *Player) LoadTrackWithIdAndFormat(fileId []byte, format Spotify.AudioFile_Format, trackId []byte) (*spotifyAsset, error) {
 	dl := newAudioFileWithIdAndFormat(fileId, format, p)
 	
 	key, err := p.loadTrackKey(trackId, fileId)
@@ -78,30 +77,24 @@ func (p *Player) loadTrackKey(trackId []byte, fileId []byte) ([]byte, error) {
 	return key, nil
 }
 
-func (p *Player) AllocateChannel() *Channel {
-	p.chMu.Lock()
-	channel := &Channel{
-		num:       p.nextChan,
-	}
-	p.nextChan++
-	p.chMap[channel.num] = channel
-	p.chMu.Unlock()
-
-	return channel
-}
-
-
-
-//////////////////
 
 
 // opens a new data channel to recv the requested chunk
-func (p *Player) requestChunk(chunkIdx int, fileID []byte) error {
-	cc := p.AllocateChannel()
-	if cap(cc.chunkDat) < kChunkByteSize {
-		cc.chunkDat = make([]byte, 0, kChunkByteSize) 
+func (p *Player) RequestChunk(chunkIdx uint32, fileID []byte, a *spotifyAsset) (*Channel, error) {
+	
+	p.chMu.Lock()
+	cc := &Channel{
+		num:       p.nextChan,
+	}
+	p.nextChan++
+	p.chMap[cc.num] = cc
+	p.chMu.Unlock()
+
+
+	if cap(cc.chunkData) < kChunkByteSize {
+		cc.chunkData = make([]byte, 0, kChunkByteSize) 
 	} else {
-		cc.chunkDat = cc.chunkDat[:0]
+		cc.chunkData = cc.chunkData[:0]
 	}
 	if cc.onComplete == nil {
 		cc.onComplete = make(chan bool)
@@ -110,25 +103,22 @@ func (p *Player) requestChunk(chunkIdx int, fileID []byte) error {
 	//cc.onHeader = a.onChannelHeader
 	//cc.onData = a.onChannelData
 
-	cc.chunkOfs = uint32(chunkIdx * kChunkSize)
+	wordOfs := uint32(chunkIdx * kChunkWordSize)
+	cc.chunkIdx = chunkIdx
+	cc.a = a
 	if err := p.stream.SendPacket(
 		connection.PacketStreamChunk,
 		buildAudioChunkRequest(
 			cc.num,
 			fileID,
-			cc.chunkOfs,
-			cc.chunkOfs + kChunkSize,
+			wordOfs,
+			wordOfs + kChunkWordSize,
 		),
 	); err != nil {
-		return fmt.Errorf("could not send stream chunk: %+v", err)
+		return nil, fmt.Errorf("could not send stream chunk: %+v", err)
 	}
-	
-	go func() {
-		
-	}()
-	
-	return  nil
 
+	return cc, nil
 }
 
 
@@ -198,9 +188,7 @@ func (p *Player) handlePacket(cc *Channel, data []byte) {
 				binary.Read(dataReader, binary.BigEndian, &headerId)
 
 				read := uint16(0)
-				if cc.onHeader != nil {
-					read = cc.onHeader(cc, headerId, dataReader)
-				}
+				p.onChannelHeader(cc, headerId, dataReader)
 
 				// Consume the remaining un-read data
 				dataReader.Read(make([]byte, length-read))
@@ -209,22 +197,15 @@ func (p *Player) handlePacket(cc *Channel, data []byte) {
 		cc.gotHeader = true
 
 	} else {
-		cc.onData(cc, data)
-		
-		if len(data) == 0 {
-			p.releaseChannel(cc)
-		}
-		
-/*
-		// is there a more robust way to signal competion?
+
+		// is there a more robust way to signal completion?
 		if len(data) == 0 {
 			cc.onComplete <- true 
+			//p.a.putEncryptedChunk(chunkIndex, chunkData[0:chunkSz])
 			p.releaseChannel(cc)
 		} else {
-			cc.chunkDat = append(cc.chunkDat, data...)
+			cc.chunkData = append(cc.chunkData, data...)
 		}
-	*/
-	
 
 	}
 
@@ -234,12 +215,45 @@ func (p *Player) handlePacket(cc *Channel, data []byte) {
 
 
 
+
+func (p *Player) onChannelHeader(cc *Channel, id byte, data *bytes.Reader) uint16 {
+	read := uint16(0)
+
+	if id == 0x3 {
+		var size uint32
+		binary.Read(data, binary.BigEndian, &size)
+		size *= 4
+
+		a := cc.a
+		
+		if a.totalSize.Load() != size {
+			a.totalSize.Store(size)
+			if a.data == nil {
+				a.data = make([]byte, size)
+			}
+
+			// Recalculate the number of chunks pending for load
+			a.chunkLock.Lock()
+			for i := uint32(0); i < a.totalChunks(); i++ {
+				a.chunkLoadOrder = append(a.chunkLoadOrder, i)
+			}
+			a.chunkLock.Unlock()
+
+			// Re-launch the chunk loading system. It will check itself if another goroutine is already loading chunks.
+			go a.loadNextChunk()
+		}
+
+		// Return 4 bytes read
+		read = 4
+	}
+
+	return read
+}
+
+
 /*
 
-
-
-
-func (p *Player) onChannelHeader(channel *Channel, id byte, data *bytes.Reader) uint16 {
+func (a *spotifyAsset) onChannelHeader(channel *Channel, id byte, data *bytes.Reader) uint16 {
 	read := uint16(0)
 
 	if id == 0x3 {
@@ -271,5 +285,15 @@ func (p *Player) onChannelHeader(channel *Channel, id byte, data *bytes.Reader) 
 	return read
 }
 
+func (a *spotifyAsset) onChannelData(channel *Channel, data []byte) uint16 {
+	if data != nil {
+		a.responseChan <- data
+		return 0 // uint16(len(data))
+	} else {
+		a.responseChan <- []byte{}
+		return 0
+	}
+
+}
 
 */
