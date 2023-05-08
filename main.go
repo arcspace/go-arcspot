@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/arcspace/go-arcspot/pkg/core"
+	"github.com/arcspace/go-arcspot/pkg/utils"
 	"github.com/arcspace/go-cedar/errors"
-	"github.com/librespot-org/librespot-golang/librespot/core"
-	"github.com/librespot-org/librespot-golang/librespot/utils"
 )
 
 const (
