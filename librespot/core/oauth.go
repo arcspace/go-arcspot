@@ -15,6 +15,15 @@ type OAuth struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
+	
+	// Expiry is the optional expiration time of the access token.
+	//
+	// If zero, TokenSource implementations will reuse the same
+	// token forever and RefreshToken or equivalent
+	// mechanisms for that TokenSource will not be used.
+	//Expiry time.Time `json:"expiry,omitempty"`
+
+
 	Error        string
 }
 
@@ -43,6 +52,7 @@ func GetOauthAccessToken(code string, redirectUri string, clientId string, clien
 		return nil, err
 	}
 	err = json.Unmarshal(body, &auth)
+	fmt.Printf("auth:\n%+v\n", auth)
 	if err != nil {
 		return nil, err
 	}

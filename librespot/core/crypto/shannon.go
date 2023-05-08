@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/librespot-org/librespot-golang/librespot/connection"
+	"github.com/librespot-org/librespot-golang/librespot/core/connection"
 )
 
 type shannonStream struct {

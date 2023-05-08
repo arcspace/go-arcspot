@@ -15,7 +15,7 @@ import (
 
 	"github.com/badfortrains/mdns"
 
-	"github.com/librespot-org/librespot-golang/librespot/crypto"
+	"github.com/librespot-org/librespot-golang/librespot/core/crypto"
 	"github.com/librespot-org/librespot-golang/librespot/utils"
 )
 

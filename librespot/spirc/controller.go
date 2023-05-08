@@ -74,7 +74,7 @@ func (c *Controller) LoadTrack(ident string, gids []string) error {
 
 	frame := &Spotify.Frame{
 		Version:         proto.Uint32(1),
-		Ident:           proto.String(c.session.DeviceId),
+		Ident:           proto.String(c.session.Opts.DeviceID),
 		ProtocolVersion: proto.String("2.0.0"),
 		SeqNr:           proto.Uint32(c.seqNr),
 		Typ:             Spotify.MessageType_kMessageTypeLoad.Enum(),
@@ -106,7 +106,7 @@ func (c *Controller) SendVolume(recipient string, volume int) error {
 	messageType := Spotify.MessageType_kMessageTypeVolume
 	frame := &Spotify.Frame{
 		Version:         proto.Uint32(1),
-		Ident:           proto.String(c.session.DeviceId),
+		Ident:           proto.String(c.session.Opts.DeviceID),
 		ProtocolVersion: proto.String("2.0.0"),
 		SeqNr:           proto.Uint32(c.seqNr),
 		Typ:             &messageType,
@@ -159,7 +159,7 @@ func (c *Controller) ListDevices() []ConnectDevice {
 func (c *Controller) sendFrame(frame *Spotify.Frame) error {
 	frameData, err := proto.Marshal(frame)
 	if err != nil {
-		return fmt.Errorf("could not Marshal spirc Request frame: ", err)
+		return fmt.Errorf("could not Marshal spirc Request frame: %v", err)
 	}
 
 	payload := make([][]byte, 1)
@@ -187,7 +187,7 @@ func (c *Controller) sendCmd(recipient []string, messageType Spotify.MessageType
 	c.seqNr += 1
 	frame := &Spotify.Frame{
 		Version:         proto.Uint32(1),
-		Ident:           proto.String(c.session.DeviceId),
+		Ident:           proto.String(c.session.Opts.DeviceID),
 		ProtocolVersion: proto.String("2.0.0"),
 		SeqNr:           proto.Uint32(c.seqNr),
 		Typ:             &messageType,

@@ -5,11 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 
-	"github.com/librespot-org/librespot-golang/Spotify"
-	"github.com/librespot-org/librespot-golang/librespot"
+	"github.com/arcspace/go-cedar/errors"
 	"github.com/librespot-org/librespot-golang/librespot/core"
 	"github.com/librespot-org/librespot-golang/librespot/utils"
 )
@@ -25,47 +25,64 @@ const (
 
 func main() {
 
+	err := main_loop()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+func main_loop() error {
+
 	// Read flags from commandline
+	accessToken := ""
 	username := flag.String("username", "", "spotify username")
 	password := flag.String("password", "", "spotify password")
-	blob := flag.String("blob", "blob.bin", "spotify auth blob")
+	blobPath := flag.String("blob", "blob.bin", "spotify auth blob")
 	devicename := flag.String("devicename", defaultDeviceName, "name of device")
 	flag.Parse()
 
-	// Authenticate
-	var session *core.Session
-	var err error
+	opts := core.SessionOpts{
+		DeviceName: *devicename,
+		//Context: host,
+	}
+
+	sess, err := opts.StartSession()
+	if err != nil {
+		log.Fatalln("StartSession: ", err)
+	}
 
 	if *username != "" && *password != "" {
 		// Authenticate using a regular login and password, and store it in the blob file.
-		session, err = librespot.Login(*username, *password, *devicename)
-	} else if *blob != "" && *username != "" {
+		err = sess.Login(*username, *password)
+	} else if *blobPath != "" && *username != "" {
 		// Authenticate reusing an existing blob
-		blobBytes, err := ioutil.ReadFile(*blob)
+		blobBytes, err := ioutil.ReadFile(*blobPath)
 
 		if err != nil {
-			fmt.Printf("Unable to read auth blob from %s: %s\n", *blob, err)
-			os.Exit(1)
-			return
+			return errors.Wrapf(err, "Unable to read auth blob from %s", *blobPath)
 		}
 
-		session, err = librespot.LoginSaved(*username, blobBytes, *devicename)
+		err = sess.LoginSaved(*username, blobBytes)
 	} else if os.Getenv("client_secret") != "" {
-		// Authenticate using OAuth (untested)
-		session, err = librespot.LoginOAuth(*devicename, os.Getenv("client_id"), os.Getenv("client_secret"), os.Getenv("redirect_uri"))
+		if accessToken == "" {
+			accessToken, err = core.LoginOAuth(os.Getenv("client_id"), os.Getenv("client_secret"), os.Getenv("redirect_uri"))
+			if err != nil {
+				return err
+			}
+		}
+		err = sess.LoginOAuthToken(accessToken)
 	} else {
 		// No valid options, show the helo
 		fmt.Println("need to supply a username and password or a blob file path")
 		fmt.Println("./microclient --username SPOTIFY_USERNAME [--blob ./path/to/blob]")
 		fmt.Println("or")
 		fmt.Println("./microclient --username SPOTIFY_USERNAME --password SPOTIFY_PASSWORD [--blob ./path/to/blob]")
-		return
+		return nil
 	}
 
 	if err != nil {
-		fmt.Println("Error logging in: ", err)
-		os.Exit(1)
-		return
+		return err
 	}
 
 	// Command loop
@@ -86,34 +103,34 @@ func main() {
 			if len(cmds) < 2 {
 				fmt.Println("You must specify the Base62 Spotify ID of the track")
 			} else {
-				funcTrack(session, cmds[1])
+				funcTrack(sess, cmds[1])
 			}
 
 		case "artist":
 			if len(cmds) < 2 {
 				fmt.Println("You must specify the Base62 Spotify ID of the artist")
 			} else {
-				funcArtist(session, cmds[1])
+				funcArtist(sess, cmds[1])
 			}
 
 		case "album":
 			if len(cmds) < 2 {
 				fmt.Println("You must specify the Base62 Spotify ID of the album")
 			} else {
-				funcAlbum(session, cmds[1])
+				funcAlbum(sess, cmds[1])
 			}
 
 		case "playlists":
-			funcPlaylists(session)
+			funcPlaylists(sess)
 
 		case "search":
-			funcSearch(session, cmds[1])
+			funcSearch(sess, cmds[1])
 
 		case "play":
 			if len(cmds) < 2 {
 				fmt.Println("You must specify the Base62 Spotify ID of the track")
 			} else {
-				funcPlay(session, cmds[1])
+				funcPlay(sess, cmds[1])
 			}
 
 		default:
@@ -274,37 +291,25 @@ func funcSearch(session *core.Session, keyword string) {
 func funcPlay(session *core.Session, trackID string) {
 	fmt.Println("Loading track for play: ", trackID)
 
-	// Get the track metadata: it holds information about which files and encodings are available
-	track, err := session.Mercury().GetTrack(utils.Base62ToHex(trackID))
-	if err != nil {
-		fmt.Println("Error loading track: ", err)
-		return
-	}
-
-	fmt.Println("Track:", track.GetName())
-
-	// As a demo, select the OGG 160kbps variant of the track. The "high quality" setting in the official Spotify
-	// app is the OGG 320kbps variant.
-	var selectedFile *Spotify.AudioFile
-	for _, file := range track.GetFile() {
-		if file.GetFormat() == Spotify.AudioFile_OGG_VORBIS_160 {
-			selectedFile = file
-		}
-	}
-
-	// Synchronously load the track
-	audioFile, err := session.Player().LoadTrack(selectedFile, track.GetGid())
+	asset, err := session.Downloader().PinAsset(trackID)
 	if err != nil {
 		fmt.Printf("Error while loading track: %s\n", err)
 		return
 	}
-	fmt.Printf("Received aidio file: %d bytes\n", audioFile.Size())
-	buffer, err := ioutil.ReadAll(audioFile)
+	r, err := asset.NewAssetReader()
 	if err != nil {
-		fmt.Printf("Error while streaming file: %s\n", err)
+		fmt.Printf("NewAssetReader: %s\n", err)
 		return
 	}
-	err = ioutil.WriteFile(fmt.Sprintf("%s - %s.ogg", track.GetArtist()[0].GetName(), track.GetName()), buffer, os.ModePerm)
+	defer r.Close()
+
+	buffer, err := ioutil.ReadAll(r)
+	if err != nil {
+		fmt.Printf("Error while reading file: %s\n", err)
+		return
+	}
+
+	err = ioutil.WriteFile(asset.Label(), buffer, os.ModePerm)
 	if err != nil {
 		fmt.Printf("Error while writing file: %s\n", err)
 		return

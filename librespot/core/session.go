@@ -8,31 +8,61 @@ import (
 	"net"
 	"time"
 
+	"github.com/arcspace/go-cedar/process"
 	"github.com/golang/protobuf/proto"
 
 	"github.com/librespot-org/librespot-golang/Spotify"
-	"github.com/librespot-org/librespot-golang/librespot/connection"
-	"github.com/librespot-org/librespot-golang/librespot/crypto"
+	"github.com/librespot-org/librespot-golang/librespot/asset"
+	"github.com/librespot-org/librespot-golang/librespot/core/connection"
+	"github.com/librespot-org/librespot-golang/librespot/core/crypto"
 	"github.com/librespot-org/librespot-golang/librespot/discovery"
 	"github.com/librespot-org/librespot-golang/librespot/mercury"
-	"github.com/librespot-org/librespot-golang/librespot/player"
 	"github.com/librespot-org/librespot-golang/librespot/utils"
 )
 
 // Session represents an active Spotify connection
 type Session struct {
+	Opts SessionOpts
 	keys             crypto.PrivateKeys      // keys used to communicate with the server
 	tcpCon           io.ReadWriter           // plain I/O network connection to the server
 	stream           connection.PacketStream // encrypted connection to the Spotify server
 	mercury          *mercury.Client         // mercury client associated with this session
 	discovery        *discovery.Discovery    // discovery service used for Spotify Connect devices discovery
-	player           *player.Player          // manages track downloads
-	DeviceId         string                  // device ID sent during auth to the Spotify
-	DeviceName       string                  // device name sent during auth to the Spotify servers for this session
+	downloader       asset.Downloader        // manages downloads
 	Username         string                  //  authenticated canonical username
 	ReusableAuthBlob []byte                  // reusable authentication blob for Spotify Connect devices
 	Country          string                  // user country returned by Spotify
 }
+
+type SessionOpts struct {
+	process.Context
+	//crypto.PrivateKeys
+	DeviceName string // Label of the device being used
+	DeviceID   string // leave nil to be auto-generated from DeviceName
+}
+
+// 	= utils.GenerateDeviceId(deviceName)
+// 	s.DeviceName = deviceName
+
+// }
+func (opts SessionOpts) StartSession() (*Session, error) {
+	sess := &Session{
+		Opts: opts,
+		keys:    crypto.GenerateKeys(),
+	}
+	
+	if sess.Opts.DeviceID == "" {
+		sess.Opts.DeviceID = utils.GenerateDeviceId(sess.Opts.DeviceName)
+	}
+		
+	err := sess.startConnection()
+	if err != nil {
+		return nil, err
+	}
+
+	return sess, nil
+}
+
 
 func (s *Session) Stream() connection.PacketStream {
 	return s.stream
@@ -46,11 +76,21 @@ func (s *Session) Mercury() *mercury.Client {
 	return s.mercury
 }
 
-func (s *Session) Player() *player.Player {
-	return s.player
+func (s *Session) Downloader() asset.Downloader {
+	return s.downloader
 }
 
 func (s *Session) startConnection() error {
+
+	apUrl, err := utils.APResolve()
+	if err != nil {
+		return fmt.Errorf("could not get ap url: %+v", err)
+	}
+	s.tcpCon, err = net.Dial("tcp", apUrl)
+	if err != nil {
+		return fmt.Errorf("could not connect to %q: %+v", apUrl, err)
+	}
+	
 	// First, start by performing a plaintext connection and send the Hello message
 	conn := connection.NewPlainConnection(s.tcpCon, s.tcpCon)
 
@@ -100,19 +140,11 @@ func (s *Session) startConnection() error {
 
 	s.stream = crypto.CreateStream(sharedKeys, conn)
 	s.mercury = mercury.CreateMercury(s.stream)
-	s.player = player.CreatePlayer(s.stream, s.mercury)
+	s.downloader = asset.NewDownloader(s.stream, s.mercury)
 	return nil
 }
 
-func setupSession() (*Session, error) {
-	session := &Session{
-		keys: crypto.GenerateKeys(),
-	}
-	err := session.doConnect()
-
-	return session, err
-}
-
+/*
 func sessionFromDiscovery(d *discovery.Discovery) (*Session, error) {
 	s, err := setupSession()
 	if err != nil {
@@ -134,19 +166,7 @@ func sessionFromDiscovery(d *discovery.Discovery) (*Session, error) {
 	}
 	return s, s.doLogin(loginPacket, d.LoginBlob().Username)
 }
-
-func (s *Session) doConnect() error {
-	apUrl, err := utils.APResolve()
-	if err != nil {
-		return fmt.Errorf("could not get ap url: %+v", err)
-	}
-	s.tcpCon, err = net.Dial("tcp", apUrl)
-	if err != nil {
-		return fmt.Errorf("could not connect to %q: %+v", apUrl, err)
-	}
-	return err
-}
-
+*/
 func (s *Session) disconnect() error {
 	if s.tcpCon != nil {
 		conn := s.tcpCon.(net.Conn)
@@ -161,26 +181,17 @@ func (s *Session) disconnect() error {
 
 func (s *Session) doReconnect() error {
 	s.disconnect()
-
-	err := s.doConnect()
+	
+	err := s.startConnection()
 	if err != nil {
 		return err
 	}
 
-	err = s.startConnection()
-	if err != nil {
-		return err
-	}
-
-	packet, err := makeLoginBlobPacket(
+	packet := s.makeLoginBlobPacket(
 		s.Username,
 		s.ReusableAuthBlob,
 		Spotify.AuthenticationType_AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS.Enum(),
-		s.DeviceId,
 	)
-	if err != nil {
-		return err
-	}
 	return s.doLogin(packet, s.Username)
 }
 
@@ -207,7 +218,10 @@ func (s *Session) runPollLoop() {
 				break
 			}
 		} else {
-			s.handle(cmd, data)
+			err = s.handle(cmd, data)
+			if err != nil {
+				fmt.Println("Error handling packet: ", err)
+			}
 		}
 	}
 }
@@ -225,7 +239,7 @@ func (s *Session) handle(cmd uint8, data []byte) error {
 
 	case cmd == connection.PacketAesKey || cmd == connection.PacketAesKeyError || cmd == connection.PacketStreamChunkRes:
 		// Audio key and data responses
-		if err := s.player.HandleCmd(cmd, data); err != nil {
+		if err := s.downloader.HandleCmd(cmd, data); err != nil {
 			return fmt.Errorf("could not handle cmd: %+v", err)
 		}
 
@@ -263,13 +277,13 @@ func (s *Session) handle(cmd uint8, data []byte) error {
 	return nil
 }
 
-func (s *Session) poll() error {
-	cmd, data, err := s.stream.RecvPacket()
-	if err != nil {
-		return fmt.Errorf("poll error: %+v", err)
-	}
-	return s.handle(cmd, data)
-}
+// func (s *Session) poll() error {
+// 	cmd, data, err := s.stream.RecvPacket()
+// 	if err != nil {
+// 		return fmt.Errorf("poll error: %+v", err)
+// 	}
+// 	return s.handle(cmd, data)
+// }
 
 func readInt(b *bytes.Buffer) uint32 {
 	c, _ := b.ReadByte()
@@ -294,7 +308,7 @@ func makeHelloMessage(publicKey []byte, nonce []byte) ([]byte, error) {
 	hello := &Spotify.ClientHello{
 		BuildInfo: &Spotify.BuildInfo{
 			Product:  Spotify.Product_PRODUCT_PARTNER.Enum(),
-			Platform: Spotify.Platform_PLATFORM_LINUX_X86.Enum(),
+			Platform: Spotify.Platform_PLATFORM_IPHONE_ARM.Enum(),
 			Version:  proto.Uint64(0x10800000000),
 		},
 		CryptosuitesSupported: []Spotify.Cryptosuite{

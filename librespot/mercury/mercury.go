@@ -10,7 +10,7 @@ import (
 	"github.com/golang/protobuf/proto"
 
 	"github.com/librespot-org/librespot-golang/Spotify"
-	"github.com/librespot-org/librespot-golang/librespot/connection"
+	"github.com/librespot-org/librespot-golang/librespot/core/connection"
 )
 
 // Mercury is the protocol implementation for Spotify Connect playback control and metadata fetching. It works as a
