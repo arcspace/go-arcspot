@@ -1,4 +1,4 @@
-module github.com/arcspace/go-arcspot
+module github.com/arcspace/go-librespot
 
 go 1.18
 

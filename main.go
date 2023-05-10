@@ -9,18 +9,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/arcspace/go-arcspot/pkg/core"
-	"github.com/arcspace/go-arcspot/pkg/utils"
 	"github.com/arcspace/go-cedar/errors"
+	"github.com/arcspace/go-librespot/pkg/respot"
+	"github.com/arcspace/go-librespot/pkg/utils"
 )
 
 const (
 	// The device name that is registered to Spotify servers
 	defaultDeviceName = "librespot"
-	// The number of samples per channel in the decoded audio
-	samplesPerChannel = 2048
-	// The samples bit depth
-	bitDepth = 16
 )
 
 func main() {
@@ -42,7 +38,7 @@ func main_loop() error {
 	devicename := flag.String("devicename", defaultDeviceName, "name of device")
 	flag.Parse()
 
-	opts := core.SessionOpts{
+	opts := respot.SessionOpts{
 		DeviceName: *devicename,
 		//Context: host,
 	}
@@ -57,16 +53,15 @@ func main_loop() error {
 		err = sess.Login(*username, *password)
 	} else if *blobPath != "" && *username != "" {
 		// Authenticate reusing an existing blob
-		blobBytes, err := ioutil.ReadFile(*blobPath)
-
-		if err != nil {
+		blobBytes, fileErr := ioutil.ReadFile(*blobPath)
+		if fileErr != nil {
 			return errors.Wrapf(err, "Unable to read auth blob from %s", *blobPath)
 		}
 
 		err = sess.LoginSaved(*username, blobBytes)
 	} else if os.Getenv("client_secret") != "" {
 		if accessToken == "" {
-			accessToken, err = core.LoginOAuth(os.Getenv("client_id"), os.Getenv("client_secret"), os.Getenv("redirect_uri"))
+			accessToken, err = respot.LoginOAuth(os.Getenv("client_id"), os.Getenv("client_secret"), os.Getenv("redirect_uri"))
 			if err != nil {
 				return err
 			}
@@ -150,7 +145,7 @@ func printHelp() {
 	fmt.Println("help:                           show this help")
 }
 
-func funcTrack(session *core.Session, trackID string) {
+func funcTrack(session *respot.Session, trackID string) {
 	fmt.Println("Loading track: ", trackID)
 
 	track, err := session.Mercury().GetTrack(utils.Base62ToHex(trackID))
@@ -162,7 +157,7 @@ func funcTrack(session *core.Session, trackID string) {
 	fmt.Println("Track title: ", track.GetName())
 }
 
-func funcArtist(session *core.Session, artistID string) {
+func funcArtist(session *respot.Session, artistID string) {
 	artist, err := session.Mercury().GetArtist(utils.Base62ToHex(artistID))
 	if err != nil {
 		fmt.Println("Error loading artist:", err)
@@ -196,7 +191,7 @@ func funcArtist(session *core.Session, artistID string) {
 
 }
 
-func funcAlbum(session *core.Session, albumID string) {
+func funcAlbum(session *respot.Session, albumID string) {
 	album, err := session.Mercury().GetAlbum(utils.Base62ToHex(albumID))
 	if err != nil {
 		fmt.Println("Error loading album:", err)
@@ -226,7 +221,7 @@ func funcAlbum(session *core.Session, albumID string) {
 
 }
 
-func funcPlaylists(session *core.Session) {
+func funcPlaylists(session *respot.Session) {
 	fmt.Println("Listing playlists")
 
 	playlist, err := session.Mercury().GetRootPlaylist(session.Username)
@@ -252,7 +247,7 @@ func funcPlaylists(session *core.Session) {
 	}
 }
 
-func funcSearch(session *core.Session, keyword string) {
+func funcSearch(session *respot.Session, keyword string) {
 	resp, err := session.Mercury().Search(keyword, 12, session.Country, session.Username)
 
 	if err != nil {
@@ -288,10 +283,10 @@ func funcSearch(session *core.Session, keyword string) {
 	}
 }
 
-func funcPlay(session *core.Session, trackID string) {
+func funcPlay(session *respot.Session, trackID string) {
 	fmt.Println("Loading track for play: ", trackID)
 
-	asset, err := session.Downloader().PinAsset(trackID)
+	asset, err := session.Downloader().PinTrack(trackID)
 	if err != nil {
 		fmt.Printf("Error while loading track: %s\n", err)
 		return
