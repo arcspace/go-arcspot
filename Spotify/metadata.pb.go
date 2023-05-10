@@ -266,11 +266,11 @@ const (
 	AudioFile_MP3_160_ENC    AudioFile_Format = 7
 	AudioFile_AAC_24         AudioFile_Format = 8
 	AudioFile_AAC_48         AudioFile_Format = 9
-	AudioFile_AAC_160        AudioFile_Format = 10
-	AudioFile_AAC_320        AudioFile_Format = 11
-	AudioFile_OTHER4         AudioFile_Format = 12
-	AudioFile_OTHER5         AudioFile_Format = 13
-	AudioFile_FLAC_FLAC      AudioFile_Format = 16
+	AudioFile_OTHER_10       AudioFile_Format = 10
+	AudioFile_OTHER_11       AudioFile_Format = 11
+	AudioFile_OTHER_12       AudioFile_Format = 12
+	AudioFile_OTHER_13       AudioFile_Format = 13
+	AudioFile_AAC_24_NORM    AudioFile_Format = 16
 )
 
 // Enum value maps for AudioFile_Format.
@@ -286,11 +286,11 @@ var (
 		7:  "MP3_160_ENC",
 		8:  "AAC_24",
 		9:  "AAC_48",
-		10: "AAC_160",
-		11: "AAC_320",
-		12: "OTHER4",
-		13: "OTHER5",
-		16: "FLAC_FLAC",
+		10: "OTHER_10",
+		11: "OTHER_11",
+		12: "OTHER_12",
+		13: "OTHER_13",
+		16: "AAC_24_NORM",
 	}
 	AudioFile_Format_value = map[string]int32{
 		"OGG_VORBIS_96":  0,
@@ -303,11 +303,11 @@ var (
 		"MP3_160_ENC":    7,
 		"AAC_24":         8,
 		"AAC_48":         9,
-		"AAC_160":        10,
-		"AAC_320":        11,
-		"OTHER4":         12,
-		"OTHER5":         13,
-		"FLAC_FLAC":      16,
+		"OTHER_10":       10,
+		"OTHER_11":       11,
+		"OTHER_12":       12,
+		"OTHER_13":       13,
+		"AAC_24_NORM":    16,
 	}
 )
 

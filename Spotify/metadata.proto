@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-option go_package = "github.com/arcspace/go-arcspot/Spotify";
+option go_package = "github.com/arcspace/go-librespot/Spotify";
 
 package Spotify;
 
@@ -162,9 +162,11 @@ message AudioFile {
         MP3_160_ENC = 7;
         AAC_24 = 8;
         AAC_48 = 9;
-        AAC_160 = 10;
-        AAC_320 = 11;
-        FLAC_FLAC = 16;
+        OTHER_10 = 10;
+        OTHER_11 = 11;
+        OTHER_12 = 12;
+        OTHER_13 = 13;
+        AAC_24_NORM = 16;
     }
 }
 
